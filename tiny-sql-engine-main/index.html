@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Custom Database Engine Benchmark</title>
+  <meta name="description" content="Interactive benchmark tool for comparing Sequential, Hash Table, and B+ Tree database engines. Measure insert, find, and delete performance with real disk I/O metrics." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0d0f14;
+      --bg-card:      #13161e;
+      --bg-input:     #1a1d27;
+      --bg-tab:       #181b25;
+      --border:       #252836;
+      --border-focus: #5b6af5;
+      --accent:       #5b6af5;
+      --accent-2:     #7c3af5;
+      --accent-grad:  linear-gradient(135deg, #5b6af5 0%, #7c3af5 100%);
+      --success:      #22c55e;
+      --danger:       #ef4444;
+      --warn:         #f59e0b;
+      --text:         #e2e8f0;
+      --text-muted:   #6b7280;
+      --text-dim:     #94a3b8;
+      --radius:       14px;
+      --radius-sm:    8px;
+      --shadow:       0 4px 32px rgba(0,0,0,.45);
+      --glow:         0 0 24px rgba(91,106,245,.25);
+      --transition:   .2s cubic-bezier(.4,0,.2,1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0 1rem 4rem;
+    }
+
+    /* ── Noise grain overlay ──────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      background-size: 180px;
+      pointer-events: none;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────── */
+    header {
+      max-width: 860px; margin: 0 auto;
+      padding: 3.5rem 0 2.5rem;
+      position: relative; z-index: 1;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: .45rem;
+      background: rgba(91,106,245,.12);
+      border: 1px solid rgba(91,106,245,.3);
+      border-radius: 999px;
+      padding: .3rem .85rem;
+      font-size: .72rem; font-weight: 600;
+      letter-spacing: .08em; text-transform: uppercase;
+      color: #a5b4fc;
+      margin-bottom: 1.2rem;
+    }
+    .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: .5; transform: scale(.8); }
+    }
+
+    h1 {
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 700;
+      line-height: 1.2;
+      background: linear-gradient(135deg, #e2e8f0 30%, #a5b4fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: .75rem;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: .95rem;
+      max-width: 520px; margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* ── Main wrapper ─────────────────────────────────────────────────── */
+    .app { max-width: 860px; margin: 0 auto; position: relative; z-index: 1; }
+
+    /* ── Tabs ─────────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex; gap: .4rem;
+      background: var(--bg-tab);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: .35rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none; cursor: pointer;
+      padding: .7rem 1rem;
+      border-radius: calc(var(--radius) - 4px);
+      font-family: 'Inter', sans-serif;
+      font-size: .88rem; font-weight: 500;
+      color: var(--text-muted);
+      transition: var(--transition);
+      display: flex; align-items: center; justify-content: center; gap: .5rem;
+    }
+
+    .tab-btn:hover:not(.active) { color: var(--text-dim); background: rgba(255,255,255,.04); }
+
+    .tab-btn.active {
+      background: var(--accent-grad);
+      color: #fff;
+      box-shadow: var(--glow);
+    }
+
+    .tab-icon { font-size: 1rem; }
+
+    /* ── Panel ────────────────────────────────────────────────────────── */
+    .panel { display: none; animation: fadeIn .25s ease; }
+    .panel.active { display: block; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      box-shadow: var(--shadow);
+    }
+
+    .card + .card { margin-top: 1.25rem; }
+
+    .card-title {
+      font-size: .75rem; font-weight: 600;
+      letter-spacing: .1em; text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 1.4rem;
+    }
+
+    /* ── Form fields ──────────────────────────────────────────────────── */
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .field { display: flex; flex-direction: column; gap: .45rem; }
+
+    label {
+      font-size: .78rem; font-weight: 500; letter-spacing: .04em;
+      color: var(--text-dim);
+    }
+
+    input, select {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: .9rem;
+      padding: .65rem .9rem;
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+      width: 100%;
+      appearance: none;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(91,106,245,.18);
+    }
+
+    input::placeholder { color: var(--text-muted); }
+
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right .85rem center;
+      padding-right: 2.2rem;
+      cursor: pointer;
+    }
+
+    select option { background: #1a1d27; }
+
+    /* ── Buttons ──────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+      padding: .72rem 1.5rem;
+      border: none; border-radius: var(--radius-sm);
+      font-family: 'Inter', sans-serif;
+      font-size: .9rem; font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      position: relative; overflow: hidden;
+    }
+
+    .btn::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: rgba(255,255,255,0);
+      transition: background var(--transition);
+    }
+    .btn:hover::after { background: rgba(255,255,255,.07); }
+    .btn:active       { transform: scale(.97); }
+
+    .btn-primary {
+      background: var(--accent-grad);
+      color: #fff;
+      box-shadow: 0 2px 16px rgba(91,106,245,.35);
+      width: 100%;
+    }
+
+    .btn-primary:disabled {
+      opacity: .5; cursor: not-allowed;
+    }
+
+    .btn-icon { font-size: 1rem; }
+    .spinner  { display: none; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    .btn.loading .spinner { display: block; }
+    .btn.loading .btn-text { opacity: 0; position: absolute; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Output / Result area ─────────────────────────────────────────── */
+    .result-box {
+      margin-top: 1.4rem;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      opacity: 0;
+      max-height: 0;
+      transition: opacity .35s ease, max-height .35s ease, margin-top .35s ease;
+    }
+    .result-box.visible { opacity: 1; max-height: 600px; }
+
+    /* success / error / neutral stripe */
+    .result-inner {
+      padding: 1.1rem 1.25rem;
+      border-radius: var(--radius-sm);
+      border-left: 3px solid;
+      background: var(--bg-input);
+    }
+
+    .result-inner.success { border-color: var(--success); }
+    .result-inner.error   { border-color: var(--danger); }
+    .result-inner.neutral { border-color: var(--accent); }
+
+    .result-status {
+      font-size: .8rem; font-weight: 600;
+      letter-spacing: .06em; text-transform: uppercase;
+      margin-bottom: .4rem;
+    }
+    .result-inner.success .result-status { color: var(--success); }
+    .result-inner.error   .result-status { color: var(--danger); }
+    .result-inner.neutral .result-status { color: #a5b4fc; }
+
+    .result-detail {
+      font-size: .9rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    .result-detail strong { color: var(--text); font-weight: 600; }
+
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* ── Benchmark Metrics Card ───────────────────────────────────────── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+
+    @media (max-width: 520px) {
+      .metrics-grid { grid-template-columns: 1fr; }
+    }
+
+    .metric-card {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1.1rem 1.2rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      transition: border-color var(--transition), transform var(--transition);
+    }
+
+    .metric-card:hover { border-color: rgba(91,106,245,.4); transform: translateY(-2px); }
+
+    .metric-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--accent-grad);
+    }
+
+    .metric-card:nth-child(2)::before { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .metric-card:nth-child(3)::before { background: linear-gradient(90deg, #22c55e, #06b6d4); }
+
+    .metric-icon { font-size: 1.5rem; margin-bottom: .4rem; }
+
+    .metric-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.6rem; font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: .2rem;
+    }
+
+    .metric-label {
+      font-size: .72rem; font-weight: 600;
+      letter-spacing: .08em; text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    /* ── Found row display ────────────────────────────────────────────── */
+    .user-card {
+      margin-top: 1rem;
+      background: rgba(91,106,245,.07);
+      border: 1px solid rgba(91,106,245,.25);
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.25rem;
+      display: flex; align-items: center; gap: 1rem;
+    }
+
+    .avatar {
+      width: 42px; height: 42px;
+      border-radius: 50%;
+      background: var(--accent-grad);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .user-info { line-height: 1.5; }
+    .user-name  { font-weight: 600; font-size: .95rem; color: var(--text); }
+    .user-email { font-size: .82rem; color: var(--text-muted); }
+    .user-id    { font-family: 'JetBrains Mono', monospace; font-size: .72rem; color: var(--accent); margin-top: .15rem; }
+
+    /* ── Divider ──────────────────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 1.5rem 0;
+    }
+
+    /* ── Engine Pills ─────────────────────────────────────────────────── */
+    .engine-label {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: rgba(91,106,245,.12);
+      border: 1px solid rgba(91,106,245,.25);
+      border-radius: 999px;
+      padding: .2rem .65rem;
+      font-size: .72rem; font-weight: 600;
+      color: #a5b4fc;
+      letter-spacing: .04em;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Time badge inline ────────────────────────────────────────────── */
+    .time-badge {
+      display: inline-flex; align-items: center; gap: .3rem;
+      background: rgba(245,158,11,.1);
+      border: 1px solid rgba(245,158,11,.3);
+      border-radius: 999px;
+      padding: .18rem .6rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .78rem;
+      color: #fbbf24;
+    }
+
+    /* ── Footer ───────────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: .78rem;
+      margin-top: 3rem;
+      position: relative; z-index: 1;
+    }
+    footer span { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="badge">
+    <span class="badge-dot"></span>
+    Live Benchmark Tool
+  </div>
+  <h1>Custom Database Engine Benchmark</h1>
+  <p class="subtitle">
+    Compare <strong>Sequential</strong>, <strong>Hash Table</strong>, and <strong>B+ Tree</strong>
+    storage engines. Measure real disk I/O, time, and storage overhead side‑by‑side.
+  </p>
+</header>
+
+<div class="app">
+
+  <!-- ── TABS ───────────────────────────────────────────────────────── -->
+  <div class="tabs" role="tablist">
+    <button class="tab-btn active" id="tab-insert" role="tab" aria-selected="true"  aria-controls="panel-insert" onclick="switchTab('insert')">
+      <span class="tab-icon">➕</span> Insert
+    </button>
+    <button class="tab-btn"        id="tab-find"   role="tab" aria-selected="false" aria-controls="panel-find"   onclick="switchTab('find')">
+      <span class="tab-icon">🔍</span> Find
+    </button>
+    <button class="tab-btn"        id="tab-delete" role="tab" aria-selected="true"  aria-controls="panel-delete" onclick="switchTab('delete')">
+      <span class="tab-icon">🗑️</span> Delete
+    </button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       PANEL: INSERT
+  ═══════════════════════════════════════════════════════════════════ -->
+  <div class="panel active" id="panel-insert" role="tabpanel" aria-labelledby="tab-insert">
+    <div class="card">
+      <p class="card-title">Insert a new row</p>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="insert-method">Engine Method</label>
+          <select id="insert-method">
+            <option value="sequential">⬛  Sequential (Linear Scan)</option>
+            <option value="hash">🟦  Hash Table</option>
+            <option value="btree">🌲  B+ Tree</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="insert-id">Row ID <span style="color:var(--danger)">*</span></label>
+          <input type="number" id="insert-id" placeholder="e.g. 42" min="0" />
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="insert-name">Name <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="insert-name" placeholder="e.g. Alice" maxlength="32" />
+        </div>
+        <div class="field">
+          <label for="insert-email">Email <span style="color:var(--danger)">*</span></label>
+          <input type="email" id="insert-email" placeholder="e.g. alice@example.com" maxlength="255" />
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-insert" onclick="doInsert()">
+        <span class="spinner"></span>
+        <span class="btn-icon">➕</span>
+        <span class="btn-text">Insert Row</span>
+      </button>
+
+      <div class="result-box" id="insert-result"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       PANEL: FIND
+  ═══════════════════════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-find" role="tabpanel" aria-labelledby="tab-find">
+    <div class="card">
+      <p class="card-title">Search for a row</p>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="find-method">Engine Method</label>
+          <select id="find-method">
+            <option value="sequential">⬛  Sequential (Linear Scan)</option>
+            <option value="hash">🟦  Hash Table</option>
+            <option value="btree">🌲  B+ Tree</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="find-id">Row ID <span style="color:var(--danger)">*</span></label>
+          <input type="number" id="find-id" placeholder="e.g. 42" min="0" />
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-find" onclick="doFind()">
+        <span class="spinner"></span>
+        <span class="btn-icon">🔍</span>
+        <span class="btn-text">Search</span>
+      </button>
+
+      <div class="result-box" id="find-result"></div>
+    </div>
+
+    <!-- Benchmark card — hidden until a find runs -->
+    <div class="card" id="benchmark-card" style="display:none; animation: fadeIn .3s ease;">
+      <p class="card-title">📊 Benchmark Results</p>
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-icon">⏱️</div>
+          <div class="metric-value mono" id="bm-time">—</div>
+          <div class="metric-label">Time Taken (ms)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">💾</div>
+          <div class="metric-value mono" id="bm-pages">—</div>
+          <div class="metric-label">Pages Read (Disk I/O)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">📁</div>
+          <div class="metric-value mono" id="bm-size">—</div>
+          <div class="metric-label">File Size (KB)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       PANEL: DELETE
+  ═══════════════════════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-delete" role="tabpanel" aria-labelledby="tab-delete">
+    <div class="card">
+      <p class="card-title">Delete a row</p>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="delete-method">Engine Method</label>
+          <select id="delete-method">
+            <option value="sequential">⬛  Sequential (Linear Scan)</option>
+            <option value="hash">🟦  Hash Table</option>
+            <option value="btree">🌲  B+ Tree</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="delete-id">Row ID <span style="color:var(--danger)">*</span></label>
+          <input type="number" id="delete-id" placeholder="e.g. 42" min="0" />
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-delete" onclick="doDelete()">
+        <span class="spinner"></span>
+        <span class="btn-icon">🗑️</span>
+        <span class="btn-text">Delete Row</span>
+      </button>
+
+      <div class="result-box" id="delete-result"></div>
+    </div>
+  </div>
+
+</div><!-- /.app -->
+
+<footer>
+  Built for <span>Custom DBMS College Project</span> — Sequential · Hash Table · B+ Tree
+</footer>
+
+<script>
+  /* ================================================================
+     Tab switching
+  ================================================================ */
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.toggle('active', b.id === `tab-${name}`);
+      b.setAttribute('aria-selected', b.id === `tab-${name}`);
+    });
+    document.querySelectorAll('.panel').forEach(p => {
+      p.classList.toggle('active', p.id === `panel-${name}`);
+    });
+  }
+
+  /* ================================================================
+     Generic helpers
+  ================================================================ */
+  function setLoading(btnId, on) {
+    const btn = document.getElementById(btnId);
+    btn.classList.toggle('loading', on);
+    btn.disabled = on;
+  }
+
+  function showResult(boxId, type, statusText, html) {
+    const box = document.getElementById(boxId);
+    box.innerHTML = `
+      <div class="result-inner ${type}">
+        <div class="result-status">${statusText}</div>
+        <div class="result-detail">${html}</div>
+      </div>`;
+    box.classList.add('visible');
+  }
+
+  function engineLabel(method) {
+    const map = {
+      sequential: 'Sequential (Linear Scan)',
+      hash:       'Hash Table',
+      btree:      'B+ Tree',
+    };
+    return map[method] || method;
+  }
+
+  function formatMethod(method) {
+    return `<span class="engine-label">⚙️ ${engineLabel(method)}</span>`;
+  }
+
+  function timeBadge(ms) {
+    return `<span class="time-badge">⏱️ ${ms} ms</span>`;
+  }
+
+  async function apiFetch(path, body) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    return res.json();
+  }
+
+  /* ================================================================
+     INSERT
+  ================================================================ */
+  async function doInsert() {
+    const method = document.getElementById('insert-method').value;
+    const id     = document.getElementById('insert-id').value.trim();
+    const name   = document.getElementById('insert-name').value.trim();
+    const email  = document.getElementById('insert-email').value.trim();
+
+    if (!id || !name || !email) {
+      showResult('insert-result', 'error', '⚠ Validation Error', 'All fields are required.');
+      return;
+    }
+
+    setLoading('btn-insert', true);
+    try {
+      const data = await apiFetch('/api/insert', { method, id, name, email });
+      showResult(
+        'insert-result', 'success', '✓ Success',
+        `${formatMethod(data.method)}
+         Row <strong>#${id}</strong> (<em>${name}</em>) was inserted successfully.<br/>
+         ${timeBadge(data.time_ms)}`
+      );
+    } catch (e) {
+      showResult('insert-result', 'error', '✗ Error', e.message);
+    } finally {
+      setLoading('btn-insert', false);
+    }
+  }
+
+  /* ================================================================
+     FIND
+  ================================================================ */
+  async function doFind() {
+    const method = document.getElementById('find-method').value;
+    const id     = document.getElementById('find-id').value.trim();
+
+    if (!id) {
+      showResult('find-result', 'error', '⚠ Validation Error', 'Please enter a Row ID.');
+      document.getElementById('benchmark-card').style.display = 'none';
+      return;
+    }
+
+    setLoading('btn-find', true);
+    try {
+      const data = await apiFetch('/api/find', { method, id });
+
+      /* ── Benchmark card ── */
+      document.getElementById('bm-time').textContent  = data.time_ms;
+      document.getElementById('bm-pages').textContent = data.pages_read;
+      document.getElementById('bm-size').textContent  = data.file_size_kb;
+      const bc = document.getElementById('benchmark-card');
+      bc.style.display = 'block';
+      /* force reflow for animation */
+      void bc.offsetWidth;
+      bc.style.animation = 'none';
+      requestAnimationFrame(() => { bc.style.animation = ''; });
+
+      if (data.found) {
+        const initials = data.name.slice(0, 2).toUpperCase();
+        showResult(
+          'find-result', 'success', '✓ Row Found',
+          `${formatMethod(data.method)}
+           <div class="user-card">
+             <div class="avatar">${initials}</div>
+             <div class="user-info">
+               <div class="user-name">${data.name}</div>
+               <div class="user-email">${data.email}</div>
+               <div class="user-id">ID #${data.id}</div>
+             </div>
+           </div>`
+        );
+      } else {
+        showResult(
+          'find-result', 'error', '✗ Not Found',
+          `${formatMethod(data.method)}
+           No row with ID <strong>#${id}</strong> exists in this database.<br/>
+           ${timeBadge(data.time_ms)}`
+        );
+      }
+    } catch (e) {
+      showResult('find-result', 'error', '✗ Error', e.message);
+      document.getElementById('benchmark-card').style.display = 'none';
+    } finally {
+      setLoading('btn-find', false);
+    }
+  }
+
+  /* ================================================================
+     DELETE
+  ================================================================ */
+  async function doDelete() {
+    const method = document.getElementById('delete-method').value;
+    const id     = document.getElementById('delete-id').value.trim();
+
+    if (!id) {
+      showResult('delete-result', 'error', '⚠ Validation Error', 'Please enter a Row ID.');
+      return;
+    }
+
+    setLoading('btn-delete', true);
+    try {
+      const data = await apiFetch('/api/delete', { method, id });
+      if (data.success) {
+        showResult(
+          'delete-result', 'success', '✓ Deleted',
+          `${formatMethod(data.method)}
+           Row <strong>#${id}</strong> was marked as deleted (tombstone).<br/>
+           ${timeBadge(data.time_ms)}`
+        );
+      } else {
+        showResult(
+          'delete-result', 'error', '✗ Not Found',
+          `${formatMethod(data.method)}
+           No active row with ID <strong>#${id}</strong> in this database.<br/>
+           ${timeBadge(data.time_ms)}`
+        );
+      }
+    } catch (e) {
+      showResult('delete-result', 'error', '✗ Error', e.message);
+    } finally {
+      setLoading('btn-delete', false);
+    }
+  }
+
+  /* ================================================================
+     Keyboard: Enter submits the active panel
+  ================================================================ */
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    if (['INPUT', 'SELECT'].includes(e.target.tagName)) {
+      const active = document.querySelector('.panel.active');
+      if (active) {
+        const btn = active.querySelector('.btn-primary');
+        if (btn && !btn.disabled) btn.click();
+      }
+    }
+  });
+</script>
+</body>
+</html>
